@@ -1,9 +1,11 @@
 #!/usr/bin/python
 
+import os
 import serial  #need this added from base python package
 import crcmod  #need this added from base python package
 import struct
 import time
+import signal
 
 import bryfunc
 ByteToHex = bryfunc.ByteToHex
@@ -19,8 +21,10 @@ class stream:
     self.path = path
     
     if self.type == "S":
-      self.ser = serial.Serial(self.path,38400)
+      self.ser = serial.Serial(self.path,38400,timeout=2)
       print "Opening ",self.ser.portstr
+      os.system('stty raw -F '+self.ser.portstr); #surely this is doable with pyserial?
+      print "Set raw mode on tty ",self.ser.portstr
       
     #TODO add type for file stream
     
@@ -44,29 +48,33 @@ class bus:
     self.timetrigger = False
     self.lastfunc = ''
     self.timeout = 0.03
+    self.crc16 = crcmod.predefined.mkCrcFun('crc-16')
   
   def read(self):
-    head = self.stream.read(8)
+    buf = ""
+    frame = ""
+    self.locked = 0
 
-    #check to make sure we're looking at the header
+    while len(buf)<10:
+      buf += self.stream.read(1)
+
+    #check to make sure we're looking at a valid frame
     while not self.locked:
-      self.locked = 0
-      if head[1]=='\x01' or head[1]=='\xF1':
-        if head[3]=='\x01':
-          if head[5]=='\x00' and head[6]=='\x00':
-            self.locked = 1
-      if self.locked == 0:
-        print "not locked - discarding 1 byte"
-        head = head[1:]
-        head += self.stream.read(1)
-    
+      frame_len = ord(buf[4])+10;
+      if len(buf) >= frame_len:
+        frame = buf[:frame_len]
+        if self.crc16(frame) == 0:
+          self.locked = 1
+        else:
+          #print "seeking"
+          buf = buf[1:]
+      else:
+        buf += self.stream.read(1) #probably safe to read larger chunks
+
     #set lastfunc for testing before write
-    self.lastfunc = ByteToHex(head[7])
-    #get the length to read from the header
-    readlen = int(ByteToHex(head[4]),16)
-    #read len+2 for data and checksum (the rest of the frame)
-    data = self.stream.read(2+readlen)  
-    return head + data
+    self.lastfunc = ByteToHex(frame[7])
+
+    return frame
   
   def write(self,data):
     #blocking call to test when it is ok to write - then write if OK
