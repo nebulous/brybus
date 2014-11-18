@@ -5,20 +5,20 @@ writestart =  time.time()
 format = '%x %X'
 import csv
 
-import _mysql
-db=_mysql.connect("dbhost","dbuser","dbpass","dbname")
+import sqlite3
+dbh=sqlite3.connect("brybus.db", isolation_level=None)
+db = dbh.cursor();
 
-'''
-Use this SQL code to create the table to log data to:
-
-CREATE TABLE `data` (
-	`ts` DATETIME NOT NULL,
-	`request` VARCHAR(25) NULL DEFAULT NULL,
-	`response` VARCHAR(350) NULL DEFAULT NULL,
-	INDEX `ts` (`ts`)
-)
-'''
-
+schema_sql = """
+begin;
+create table if not exists data (
+	ts timestamp not null,
+	request varchar(25),
+	response varchar(350)
+);
+create index if not exists ts_index on data(ts);
+commit;""";
+db.executescript(schema_sql)
 
 import brybus
 ByteToHex = brybus.ByteToHex
@@ -82,9 +82,8 @@ s = brybus.stream('S','/dev/ttyUSB0')
 b = brybus.bus(s)
 
 table=[]
-
-query = "insert into data values (now(),'START','START')"
-db.query(query)
+query = "insert into data values (datetime('now'),'START','START')"
+db.execute(query)
 
 while(1):
   #get write frame and write it 
@@ -116,14 +115,14 @@ while(1):
         #print "NC", time.strftime(format), ByteToHex(f.raw[0:11]),f.data[6:]
       else:
         row[1]=f.data[6:]
-        query = "insert into data values (now(),'"+ByteToHex(f.raw[0:11])+"','"+f.data[6:]+"')"
-        db.query(query)
+        query = "insert into data values (datetime('now'),'"+ByteToHex(f.raw[0:11])+"','"+f.data[6:]+"')"
+        db.execute(query)
         print " C", time.strftime(format), ByteToHex(f.raw[0:11]),f.data[6:]
       found=1
 
   if found==0 and (f.func in ('0C','06')):
     table.append([ByteToHex(f.raw[0:11]),f.data[6:]])
-    query = "insert into data values (now(),'"+ByteToHex(f.raw[0:11])+"','"+f.data[6:]+"')"
-    db.query(query)
+    query = "insert into data values (datetime('now'),'"+ByteToHex(f.raw[0:11])+"','"+f.data[6:]+"')"
+    db.execute(query)
     print " A",time.strftime(format), ByteToHex(f.raw[0:11]),f.data[6:]
 
